@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DietTracker</title>
+<meta name="description" content="Segui la dieta del tuo nutrizionista giorno per giorno.">
+<meta name="theme-color" content="#2E7D4F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="DietTracker">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"><p class="sub" style="margin-top:40px;text-align:center"><span class="spin"></span>Caricamento…</p></main>
+<nav><div class="in">
+  <button data-tab="oggi" class="on"><span class="ic">🍽️</span>Oggi</button>
+  <button data-tab="sett"><span class="ic">📈</span>Andamento</button>
+  <button data-tab="spesa"><span class="ic">🛒</span>Spesa</button>
+  <button data-tab="piano"><span class="ic">📋</span>Piano</button>
+</div></nav>
+<script type="module" src="app.js"></script>
+</body>
+</html>
