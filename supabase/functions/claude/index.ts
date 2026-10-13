@@ -92,10 +92,10 @@ Deno.serve(async (req) => {
   try {
     const url = Deno.env.get("SUPABASE_URL")!;
     const auth = req.headers.get("Authorization") ?? "";
-    const userClient = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) return json({ error: "Non hai effettuato l'accesso" }, 401);
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const token = auth.replace(/^Bearer\s+/i, "");
+    const { data: { user } } = await admin.auth.getUser(token);
+    if (!user) return json({ error: "auth", message: "Sessione scaduta: esci e rientra nell'app." }, 401);
     const body = await req.json();
 
     if (body.mode === "delete_account") {

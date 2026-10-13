@@ -153,8 +153,12 @@ async function callAI(body) {
   if (!sb) throw new Error('Non disponibile in modalità prova');
   const { data, error } = await sb.functions.invoke('claude', { body });
   if (error) {
-    let msg = 'Servizio non disponibile, riprova più tardi.';
-    try { const j = await error.context.json(); msg = j.message || msg; } catch (e) { }
+    const st = error.context && error.context.status;
+    let msg = st === 404 ? 'Funzione "claude" non trovata su Supabase (controlla il nome).'
+      : st === 401 ? 'Accesso alla funzione rifiutato (errore 401): disattiva "Verify JWT" nelle impostazioni della funzione.'
+      : st ? `Servizio non disponibile (errore ${st}).`
+      : 'Funzione non raggiungibile: controlla che "claude" sia pubblicata su Supabase.';
+    try { const j = await error.context.json(); if (j.message || j.msg || j.error) msg = (j.message || j.msg || j.error) + (st ? ` (errore ${st})` : ''); } catch (e) { }
     throw new Error(msg);
   }
   return data;
