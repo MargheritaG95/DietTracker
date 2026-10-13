@@ -13,6 +13,9 @@ Si può provare senza account aprendo il sito con `?demo` alla fine dell'indiriz
 ### 1. Database
 Supabase → **SQL Editor** → **New query** → incolla il contenuto di `supabase/schema.sql` → **Run**.
 
+### 1b. Spazio per le foto della dieta
+SQL Editor → New query → incolla `supabase/storage.sql` → Run.
+
 ### 2. Login
 Supabase → **Authentication** → **URL Configuration**:
 - **Site URL**: `https://margheritag95.github.io/DietTracker/`

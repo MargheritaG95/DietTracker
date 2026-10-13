@@ -136,6 +136,7 @@ async function loadAll() {
   PLAN = pl.data ? normPlan(pl.data.plan) : null;
   const m = (mi.data && mi.data.data) || {};
   S = { days: {}, shop: m.shop || {}, weights: m.weights || {}, custom: m.custom || [] };
+  dietFiles = await listDietFiles();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb.from('days').select('day,data').eq('user_id', user.id).range(from, from + 999);
     if (error) throw error;
@@ -320,7 +321,7 @@ function renderSetup() {
     <label class="btn" for="dietFile">Scegli file</label><input id="dietFile" type="file" accept="image/*,application/pdf" multiple></div>
     ${parsing ? `<p class="sub" style="margin-top:10px"><span class="spin"></span>Claude sta leggendo la tua dieta… può volerci fino a un minuto.</p>` : ''}
     ${setupMsg ? `<div class="msg ${setupMsg[0]}">${esc(setupMsg[1])}</div>` : ''}
-    <p class="disc">La foto viene inviata a Claude (Anthropic) solo per la trascrizione e non viene conservata dall’app. Copri nome e dati personali se preferisci.</p></div>` : ''}
+    <p class="disc">La foto viene inviata a Claude (Anthropic) per la trascrizione e salvata nel tuo spazio privato, così puoi riguardarla dalla scheda Piano. Copri nome e dati personali se preferisci.</p></div>` : ''}
   <div class="card"><h2>✍️ Inseriscila a mano</h2><p class="sub">Parti da uno schema vuoto con colazione, spuntini, pranzo e cena.</p>
     <button class="btn full" data-act="manual">Compila a mano</button></div>
   ${PLAN ? `<button class="btn ghost" style="width:100%;margin-top:14px" data-act="cancelSetup">Annulla, tieni il piano attuale</button>` : ''}
@@ -330,27 +331,76 @@ async function fileToPart(file) {
   if (file.type === 'application/pdf') {
     if (file.size > 9e6) throw new Error('Il PDF è troppo grande (massimo 9 MB).');
     const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
-    return { type: 'pdf', media_type: 'application/pdf', data: b64 };
+    return { type: 'pdf', media_type: 'application/pdf', data: b64, blob: file, ext: 'pdf' };
   }
   const img = await createImageBitmap(file);
   const sc = Math.min(1, 1600 / Math.max(img.width, img.height));
   const c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   const b64 = c.toDataURL('image/jpeg', 0.85).split(',')[1];
-  return { type: 'image', media_type: 'image/jpeg', data: b64 };
+  const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.85));
+  return { type: 'image', media_type: 'image/jpeg', data: b64, blob, ext: 'jpg' };
 }
 async function onDietFiles(files) {
   if (!files.length) return;
   parsing = true; setupMsg = null; render();
   try {
     const parts = []; for (const f of [...files].slice(0, 6)) parts.push(await fileToPart(f));
-    const r = await callAI({ mode: 'parse', files: parts });
+    const r = await callAI({ mode: 'parse', files: parts.map(({ type, media_type, data }) => ({ type, media_type, data })) });
     const plan = normPlan(r.plan);
     if (!plan.meals.length) throw new Error('Non sono riuscito a trovare i pasti. Prova con una foto più nitida o compila a mano.');
     ED = plan; edFrom = 'parse'; edDay = 1; view = 'edit';
+    storeDietFiles(parts).catch(() => { });
   } catch (e) { setupMsg = ['err', e.message || 'Lettura non riuscita.']; }
   finally { parsing = false; render(); window.scrollTo(0, 0); }
 }
+
+/* ================= Foto della dieta (spazio privato) ================= */
+let dietFiles = [];
+async function listDietFiles() {
+  if (!sb || !user) return [];
+  const { data, error } = await sb.storage.from('diets').list(user.id, { limit: 20, sortBy: { column: 'name', order: 'asc' } });
+  if (error) return [];
+  return (data || []).filter(f => f.name && !f.name.startsWith('.')).map(f => f.name);
+}
+async function storeDietFiles(parts) {
+  if (!sb || !user || !parts.length) return;
+  const stamp = Date.now();
+  const names = [];
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i]; const name = `${stamp}-${i + 1}.${p.ext}`;
+    const { error } = await sb.storage.from('diets').upload(`${user.id}/${name}`, p.blob, { contentType: p.ext === 'pdf' ? 'application/pdf' : 'image/jpeg', upsert: true });
+    if (error) throw error;
+    names.push(name);
+  }
+  const old = dietFiles.filter(n => !names.includes(n));
+  if (old.length) await sb.storage.from('diets').remove(old.map(n => `${user.id}/${n}`));
+  dietFiles = names;
+  if (view === 'app') render();
+}
+async function onDietPhotoOnly(files) {
+  if (!files.length) return;
+  flash('Sto salvando la foto…');
+  try { const parts = []; for (const f of [...files].slice(0, 6)) parts.push(await fileToPart(f)); await storeDietFiles(parts); status = 'Foto della dieta salvata.'; render(); }
+  catch (e) { flash('Non sono riuscito a salvare la foto. Controlla che lo spazio "diets" sia stato creato su Supabase.'); }
+}
+async function openDietViewer() {
+  if (!dietFiles.length) return;
+  const paths = dietFiles.map(n => `${user.id}/${n}`);
+  const { data, error } = await sb.storage.from('diets').createSignedUrls(paths, 3600);
+  if (error || !data) { flash('Non riesco ad aprire la foto, riprova.'); return; }
+  const body = data.map((d, i) => dietFiles[i].endsWith('.pdf')
+    ? `<a class="pdflink" href="${esc(d.signedUrl)}" target="_blank" rel="noopener">📄 Apri il PDF della dieta</a>`
+    : `<img src="${esc(d.signedUrl)}" alt="Foto della dieta, pagina ${i + 1}">`).join('');
+  const o = document.createElement('div'); o.className = 'photo';
+  o.innerHTML = `<div class="bar"><span>La tua dieta</span><span style="display:flex;gap:8px"><button data-zoom>Ingrandisci</button><button data-close>Chiudi</button></span></div><div class="sc">${body}</div>`;
+  document.body.appendChild(o); document.body.style.overflow = 'hidden';
+}
+document.addEventListener('click', e => {
+  const ph = e.target.closest('.photo'); if (!ph) return;
+  if (e.target.closest('[data-zoom]') || e.target.tagName === 'IMG') { const z = ph.classList.toggle('zoom'); ph.querySelector('[data-zoom]').textContent = z ? 'Riduci' : 'Ingrandisci'; return; }
+  if (e.target.closest('[data-close]')) { ph.remove(); document.body.style.overflow = ''; }
+});
 
 /* ================= Schermata: modifica piano ================= */
 function renderEditor() {
@@ -674,6 +724,9 @@ function renderPiano() {
   const email = user && user.email ? user.email : 'modalità prova';
   return `<div class="sub">Il tuo piano</div><h1>Piano</h1>
   <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" style="flex:1" data-act="edit">Modifica piano</button><button class="btn ghost" style="flex:1" data-act="newdiet">Carica nuova dieta</button></div>
+  ${sb ? (dietFiles.length
+    ? `<button class="dietbtn" data-act="viewdiet"><span class="di">📄</span><span class="dt"><b>La tua dieta</b><small>Foto del piano del nutrizionista</small></span><span class="da">Apri ›</span></button>`
+    : `<label class="dietbtn" for="dietPhotoOnly"><span class="di">📷</span><span class="dt"><b>Aggiungi la foto della dieta</b><small>Per riguardarla quando vuoi. Resta privata.</small></span><span class="da">Carica ›</span></label><input id="dietPhotoOnly" type="file" accept="image/*,application/pdf" multiple hidden>`) : ''}
   ${P.rules.length ? `<h2 class="sec">Regole</h2><div class="rules" style="margin-top:10px">${P.rules.map(r => `<div class="rule ${r.no ? 'no' : ''}"><b>${esc(r.t)}</b><span>${esc(r.v)}</span></div>`).join('')}</div>` : ''}
   ${P.exclusions.length ? `<h2 class="sec">Da escludere</h2><p class="sub sd">${esc(P.exclusions.join(', '))}</p>` : ''}
   ${P.supplements.length ? `<h2 class="sec">Integratori</h2><div class="list">${P.supplements.map(s => { const m = P.meals.find(x => x.k === s.meal); return `<div class="li"><span>${esc(s.n)}</span><span class="v">${esc(s.dose)}${m ? ', ' + esc(m.n.toLowerCase()) : ''}</span></div>`; }).join('')}</div>` : ''}
@@ -732,6 +785,7 @@ app.addEventListener('click', async e => {
     const act = a.dataset.act;
     if (act === 'manual') { ED = PLAN ? JSON.parse(JSON.stringify(PLAN)) : emptyPlan(); edFrom = 'manual'; edDay = 1; view = 'edit'; render(); window.scrollTo(0, 0); }
     if (act === 'edit') { ED = JSON.parse(JSON.stringify(PLAN)); edFrom = 'manual'; edDay = 1; view = 'edit'; render(); window.scrollTo(0, 0); }
+    if (act === 'viewdiet') { openDietViewer(); }
     if (act === 'newdiet') { setupMsg = null; view = 'setup'; render(); window.scrollTo(0, 0); }
     if (act === 'cancelSetup') { view = 'app'; render(); }
     if (act === 'logout') { await sb.auth.signOut(); }
@@ -741,7 +795,7 @@ app.addEventListener('click', async e => {
     }
     if (act === 'deleteAccount') {
       if (!confirm('Eliminare definitivamente il tuo account e tutti i dati? Non si può annullare.')) return;
-      try { await callAI({ mode: 'delete_account' }); await sb.auth.signOut(); authMsg = ['ok', 'Account eliminato.']; } catch (err) { flash(err.message); }
+      try { if (dietFiles.length) await sb.storage.from('diets').remove(dietFiles.map(n => `${user.id}/${n}`)); await callAI({ mode: 'delete_account' }); await sb.auth.signOut(); authMsg = ['ok', 'Account eliminato.']; } catch (err) { flash(err.message); }
     }
     if (act === 'resetDemo') { if (confirm('Cancellare i dati di prova?')) { localStorage.removeItem(LS_DEMO); PLAN = null; S = { days: {}, shop: {}, weights: {}, custom: [] }; view = 'setup'; render(); } }
     return;
@@ -785,6 +839,7 @@ app.addEventListener('click', async e => {
 app.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'dietFile') { onDietFiles(t.files); return; }
+  if (t.id === 'dietPhotoOnly') { onDietPhotoOnly(t.files); return; }
   if (view === 'edit') { onEditorInput(t); return; }
   const k = key(viewDate);
   if (t.hasAttribute('data-note')) { const id = t.closest('.item').dataset.id, D = day(k); if (D.it[id] && D.it[id].n && !D.it[id].ev && AI) valuta(k + '|it|' + id); else render(); return; }
