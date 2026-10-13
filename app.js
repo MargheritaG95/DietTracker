@@ -93,9 +93,7 @@ function planFor(d) {
   return meals;
 }
 function pool(mk, cur) {
-  const meal = PLAN.meals.find(m => m.k === mk);
-  const main = meal && /pranzo|cena/i.test(meal.n);
-  const keys = main ? PLAN.meals.filter(m => /pranzo|cena/i.test(m.n)).map(m => m.k) : [mk];
+  const keys = [mk];
   const set = new Set();
   for (let d = 0; d < 7; d++) planFor(d).forEach(m => { if (keys.includes(m.k)) m.items.forEach(it => { if (!it.sup && !it.act && it.t !== cur && !/acqua|olio/i.test(it.t)) set.add(it.t); }); });
   return [...set];
