@@ -393,7 +393,7 @@ async function openDietViewer() {
     ? `<a class="pdflink" href="${esc(d.signedUrl)}" target="_blank" rel="noopener">📄 Apri il PDF della dieta</a>`
     : `<img src="${esc(d.signedUrl)}" alt="Foto della dieta, pagina ${i + 1}">`).join('');
   const o = document.createElement('div'); o.className = 'photo';
-  o.innerHTML = `<div class="bar"><span>La tua dieta</span><span style="display:flex;gap:8px"><button data-zoom>Ingrandisci</button><button data-close>Chiudi</button></span></div><div class="sc">${body}</div>`;
+  o.innerHTML = `<div class="pbar"><span>La tua dieta</span><span style="display:flex;gap:8px"><button data-zoom>Ingrandisci</button><button data-close>Chiudi</button></span></div><div class="sc">${body}</div>`;
   document.body.appendChild(o); document.body.style.overflow = 'hidden';
 }
 document.addEventListener('click', e => {
