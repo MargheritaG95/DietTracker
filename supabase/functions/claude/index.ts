@@ -87,7 +87,10 @@ function evalPrompt(b: Record<string, unknown>) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "OPTIONS") {
+    const asked = req.headers.get("Access-Control-Request-Headers");
+    return new Response("ok", { headers: { ...CORS, ...(asked ? { "Access-Control-Allow-Headers": asked } : {}) } });
+  }
   if (req.method !== "POST") return json({ error: "method" }, 405);
   try {
     const url = Deno.env.get("SUPABASE_URL")!;

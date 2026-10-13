@@ -151,17 +151,22 @@ const day = k => { const D = S.days[k] || (S.days[k] = { it: {}, w: 0, ex: [] })
 /* ================= Claude (server) ================= */
 async function callAI(body) {
   if (!sb) throw new Error('Non disponibile in modalità prova');
-  const { data, error } = await sb.functions.invoke('claude', { body });
-  if (error) {
-    const st = error.context && error.context.status;
-    let msg = st === 404 ? 'Funzione "claude" non trovata su Supabase (controlla il nome).'
-      : st === 401 ? 'Accesso alla funzione rifiutato (errore 401): disattiva "Verify JWT" nelle impostazioni della funzione.'
-      : st ? `Servizio non disponibile (errore ${st}).`
-      : 'Funzione non raggiungibile: controlla che "claude" sia pubblicata su Supabase.';
-    try { const j = await error.context.json(); if (j.message || j.msg || j.error) msg = (j.message || j.msg || j.error) + (st ? ` (errore ${st})` : ''); } catch (e) { }
-    throw new Error(msg);
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Sessione scaduta: esci e rientra.');
+  let r;
+  try {
+    r = await fetch(SUPABASE_URL + '/functions/v1/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { throw new Error('Connessione non riuscita: controlla internet e riprova.'); }
+  let j = null; try { j = await r.json(); } catch (e) { }
+  if (!r.ok) {
+    const msg = (j && (j.message || j.msg || j.error)) || (r.status === 404 ? 'Funzione "claude" non trovata su Supabase.' : 'Servizio non disponibile.');
+    throw new Error(`${msg} (errore ${r.status})`);
   }
-  return data;
+  return j;
 }
 
 /* ================= Punteggio ================= */
